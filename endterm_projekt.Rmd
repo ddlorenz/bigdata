@@ -1,0 +1,505 @@
+---
+title: "Endterm Project - UK Big Data und Uncertainty Quantification"
+author: "David Gorbach"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(knitr)
+library(skimr)
+library(corrplot)
+library(ggplot2)
+library(patchwork)
+library(randomForest)
+library(MASS)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(glmnet)
+library(class)
+library(ROCR)
+library(patchwork)
+library(plotROC)
+library(Metrics)
+library(gbm)
+```
+
+Data Analasis of Bankloan approval
+
+# Exploratory Data Analysis
+
+```{r one}
+data <- read.csv("bankloan.csv")
+data <- data[,-1]
+kable(head(data))
+colSums(is.na(data))
+str(data) 
+```
+
+
+Explanation:
+
+- ID: Customer ID
+
+- Age : Customer Age
+
+- Experience : Customer Experience
+
+- Income : Income of the Customer
+
+- ZipCode: Customer's residence zipcode
+
+- Family : No of Family members of the customer
+
+- CCAvg: Credit Card Average Score
+
+- Education: Education of the customer
+
+- Mortgage: Mortgage taken or not taken by the customer
+
+- Personal Loan: 0 = No personal loan given , 1 = personal loan given
+
+- Securities Account : Having or not having a Securities Account
+
+- CD Account : Having or not having a CD Account
+
+- Online : Having or not having online banking
+
+- Credit Card : Having or not having a credit card
+
+```{r 2}
+tab <- table(data$Personal.Loan)
+tab
+tab[2]/sum(tab)
+```
+
+We see that loans were only given in ~10% of cases.
+
+
+```{r two}
+skim(data)
+
+corrplot(
+  cor(data),
+  method = "circle",
+  col = colorRampPalette(c("red", "white", "blue"))(200),
+  tl.col = "red",
+  tl.srt = 90,
+  addCoef.col = NULL,
+  number.cex = 0.7,
+  diag = TRUE
+)
+```
+The largest correlations with Personal Loan are with Income, average Credit, and
+CD Account.
+
+```{r three}
+data$Personal.Loan <- as.factor(data$Personal.Loan)
+
+ggplot(data, 
+  aes ( x= Income, fill = Personal.Loan)) +
+  geom_histogram(position = "dodge")+ 
+  scale_fill_brewer( palette =  "Set1", direction =-1)
+
+ggplot(data, 
+  aes ( x= CD.Account, fill = Personal.Loan)) +
+  geom_histogram(position = "dodge")+ 
+  scale_fill_brewer( palette =  "Set1", direction =-1)
+
+ggplot(data, 
+  aes ( x= CCAvg, fill =Personal.Loan)) +
+  geom_histogram(position = "dodge")+ 
+  scale_fill_brewer( palette =  "Set1", direction =-1)
+
+ggplot(data, 
+  aes ( x= Education, fill = Personal.Loan)) +
+  geom_histogram(position = "dodge")+ 
+  scale_fill_brewer( palette =  "Set1", direction =-1)
+
+ggplot(data, 
+  aes ( x= Mortgage, fill = Personal.Loan)) +
+  geom_histogram(position = "dodge")+ 
+  scale_fill_brewer( palette =  "Set1", direction =-1)
+
+ggplot(data, 
+  aes ( x= Family, fill = Personal.Loan)) +
+  geom_histogram(position = "dodge")+ 
+  scale_fill_brewer( palette =  "Set1", direction =-1)
+```
+Income and Credit Card Average Score seam to have a high influence on
+whether a loan is granted or not, although the distribution of Credit Score Averages
+is rather uniformly distributed for people who received a loan.
+Education?
+
+## Predictor distributions
+
+```{r}
+ggplot(data, aes(x=Income)) + geom_histogram()
+ggplot(data, aes(x=CCAvg)) + geom_histogram()
+table(data$CD.Account)
+```
+
+# Analysis Prep
+
+```{r prep}
+set.seed(123)
+index <- sample(nrow(data), nrow(data)*0.8)
+train<- data[index,]
+test<- data[-index,]
+
+y_num <- as.numeric( as.character( test$Personal.Loan ) ) # classes just as 0,1
+```
+
+```{r norm data}
+preproc.param <- train %>% 
+  preProcess(method = c("center", "scale"))
+
+train.normed  <- preproc.param %>% predict(train)
+test.normed  <- preproc.param %>% predict(test)
+```
+
+# Model Implementation
+
+
+## Bagging
+```{r bagging}
+bag.model <- randomForest(Personal.Loan ~ ., data = train, mtry=12, importance=T) 
+bag.model
+
+predict.bag <- predict(bag.model, newdata = test)
+results.bag.model <- confusionMatrix(as.factor(test$Personal.Loan), 
+                                     predict.bag,positive = "1")
+results.bag.model
+varImpPlot(bag.model)
+```
+
+Issues Slide 6 p 23
+It seems like Education is the second most important predictor.
+
+
+## Random Forest
+```{r random forest}
+forest.model<- randomForest(Personal.Loan ~ ., data = train, mtry=floor((ncol(train) - 1)/3), importance=T)
+
+forest.model
+
+perdict.forest <- predict(forest.model, newdata = test)
+results.forest.model <- confusionMatrix(as.factor(test$Personal.Loan), 
+                                        perdict.forest,positive = "1")
+results.forest.model
+varImpPlot(forest.model)
+```
+
+## Boosting (haben wir nicht bei classification gemacht also ka ob das geht?)
+```{r boosting}
+#x.train<- CottbusData[,-c(1:3)]
+#x.test<- CottbusData_test[,-c(1:3)]
+#y.train<-CottbusData[,3]
+#y.test<-CottbusData_test[,3]
+#
+##	Set up parameters to pass in; there are many more hyper-parameters available, but these are the most common to control
+#gbm_ntrees <- 120
+##	120 trees in the model; can scale back later for predictions, if desired or overfitting is suspected
+#gbm_shrinkage <-  0.05
+##	shrinkage is a regularization parameter dictating how fast the algorithm moves across the loss gradient
+##	0.05 is somewhat aggressive; default is 0.001, values below 0.1 tend to produce good results
+##		decreasing shrinkage generally improves results, but requires more trees, so the two should be adjusted in tandem
+#gbm_depth <- 4
+##	depth 4 means each tree will evaluate four decisions; 
+##		will always yield [3*depth + 1] nodes and [2*depth + 1] terminal nodes (depth 4 = 9) 
+##		because each decision yields 3 nodes, but each decision will come from a prior node
+#gbm_minobs <- 15
+#
+##	regularization parameter to dictate how many observations must be present to yield a terminal node
+##	higher number means more conservative fit; default is 10
+#
+##	fit model
+#g <- gbm.fit(x=x.train, y=y.train,distribution = "gaussian",n.trees = gbm_ntrees, shrinkage = gbm_shrinkage,
+#           interaction.depth = gbm_depth, n.minobsinnode = gbm_minobs)
+## gbm fit; provide all remaining independent variables in x.train; provide targets as y.train;
+##	gaussian distribution will optimize squared loss 
+#
+## get predictions; first on train set, then on unseen test data
+#boost.train <- predict.gbm(object = g,newdata = x.train, gbm_ntrees)
+#boost.test <- predict.gbm(object = g,newdata = x.test, gbm_ntrees)
+#
+## compare model performance 
+##library(mltools)#fyi 
+#rmse(y.train,boost.train)	#sqrt(meam(()^2))
+#rmse(y.test,boost.test)	
+#
+### 2.2
+## Hyperparameters tuning
+#g.cv<- gbm(NO2 ~. ,data=CottbusData[, -c(1,2)], distribution = "gaussian", n.trees = 1000, shrinkage = gbm_shrinkage,
+#            interaction.depth = 1, cv.folds = 5, verbose = F)
+#
+#min_MSE <- which.min(g.cv$cv.error)
+## get MSE and compute RMSE
+#sqrt(g.cv$cv.error[min_MSE]) # can we do better?
+## plot loss function as a result of n trees added to the ensemble
+#gbm.perf(g.cv, method = "cv")
+#print(g.cv)
+#
+#
+### 2.3 
+#set.seed(123)
+#lambdas <- seq(0, 0.4, by=0.01)
+#length.lambdas <- length(lambdas)
+#train.errors <- rep(NA, length.lambdas)
+#test.errors <- rep(NA, length.lambdas)
+#
+#for (i in 1:length.lambdas) {
+#  boost.no2 <- gbm(NO2 ~., data = CottbusData[,-c(1,2)], distribution = "gaussian", 
+#                      n.trees = 1000, shrinkage = lambdas[i])
+#  train.pred <-predict(boost.no2, CottbusData[,-c(1,2)], n.trees = 1000)
+#  test.pred <- predict(boost.no2, CottbusData_test[,-c(1,2)], n.trees = 1000)
+#  train.errors[i] <-sqrt(mean((train.pred-y.train)^2))
+#  test.errors[i] <- sqrt(mean((test.pred- y.test)^2))
+#}
+#
+#matplot(lambdas, cbind(train.errors,test.errors), type = "b", xlab = "Shrinkage", ylab = "RMSE", 
+#     col = c("blue","red"), pch = 20)
+#abline(v=lambdas[which.min(test.errors)], lty=2, col="green")
+#lambdas[which.min(test.errors)] # minimum test error is obtained at this value of lambda 
+#
+### 2.4 (additional question)
+## create hyperparameter grid
+#hyper_grid <- expand.grid(
+#  shrinkage = c(0.01, 0.05, 0.1),
+#  interaction.depth = c( 3,5,6),
+#  n.minobsinnode = c(5, 10, 15),
+#  bag.fraction = c(0.65, 0.8, 1), 
+#  optimal_trees = 0,               # a place to dump results
+#  min_RMSE = 0                     # a place to dump results
+#)
+#
+## grid search , can take several minutes
+#for(i in 1:nrow(hyper_grid)) {
+#  # reproducibility
+#  set.seed(123)
+#  # train model
+#  gbm.tune <- gbm(
+#    formula = NO2 ~.,
+#    distribution = "gaussian",
+#    data = CottbusData[,-c(1,2)],
+#    n.trees = 5000,
+#    interaction.depth = hyper_grid$interaction.depth[i],
+#    shrinkage = hyper_grid$shrinkage[i],
+#    n.minobsinnode = hyper_grid$n.minobsinnode[i],
+#    bag.fraction = hyper_grid$bag.fraction[i],
+#    train.fraction = 0.75,
+#    verbose = FALSE
+#  )
+#  # add min training error and trees to grid
+#  hyper_grid$optimal_trees[i] <- which.min(gbm.tune$valid.error)
+#  hyper_grid$min_RMSE[i] <- sqrt(min(gbm.tune$valid.error))
+#}
+#
+#
+#hyper_grid[which.min(hyper_grid$min_RMSE),] #select the line with min RMSE
+#
+## change the parameters according to the results above
+#gbm.fit.final <- gbm(NO2 ~ ., distribution = "gaussian", data = CottbusData[,-c(1,2)],
+#  n.trees = 352,
+#  interaction.depth = 6,
+#  shrinkage = 0.01,
+#  n.minobsinnode = 10,
+#  bag.fraction = 1, 
+#  verbose = FALSE
+#)  
+#
+#pred_train <- predict(gbm.fit.final, n.trees = gbm.fit.final$n.trees, CottbusData[,-c(1,2)])
+#pred_test <- predict(gbm.fit.final, n.trees = gbm.fit.final$n.trees, CottbusData_test[,-c(1,2)])
+#
+#rmse(y.train,pred_train)	
+#rmse(y.test,pred_test)
+#
+#summary(gbm.fit.final)
+#
+```
+
+## Logistic Regression
+```{r logistic}
+logit <- glm(Personal.Loan ~ ., family = "binomial", data = train)
+summary(logit)
+exp(coef(logit))
+
+
+logit.pred <- predict(logit, newdata = test, type = "response")
+logit.pred <- ifelse(logit.pred < 0.5, 0, 1) 
+# if > 0.5 class one otherwise class 0
+
+results.logit.model <- confusionMatrix(data = as.factor(logit.pred), 
+                                       reference = test$Personal.Loan,
+                                       positive = "1")
+
+results.logit.model
+
+ROCRpred <- prediction(logit.pred, test$Personal.Loan)
+ROCRperf <- performance(ROCRpred, measure = "tpr", x.measure = "fpr")
+
+plot(ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
+
+logit.auc <- performance(ROCRpred, measure = "auc")
+logit.auc <- logit.auc@y.values[[1]]
+logit.auc
+
+# Keine Ahnung ob man das so machen darf oder nicht
+
+lasso.cv <- cv.glmnet(x=data.matrix(train[,-which(colnames(train) == "Personal.Loan")]), 
+                      y=data.matrix(train[,which(colnames(train) == "Personal.Loan")]), 
+                      family = "binomial", alpha=1)
+plot(lasso.cv)
+lasso.cv$lambda.min
+
+lasso.pred = predict (lasso.cv, s=lasso.cv$lambda.min , 
+                      newx =data.matrix(test[,-which(colnames(train) == "Personal.Loan")]))
+
+sqrt(mean((lasso.pred - (as.numeric(test[,which(colnames(train) == "Personal.Loan")])-1))^2))
+
+# irgendwie super weird
+# evt einfach deleten
+
+```
+Recht gute Accuracy
+
+## Linear Diskiminant Analysis
+```{r LDA}
+lda.model <- lda(Personal.Loan ~ ., data = train)
+predmodel.train.lda <- predict(lda.model, train)
+ldahist(predmodel.train.lda$x[,1], g=predmodel.train.lda$class)
+# should look like a gausian distribution
+
+
+predmodel.test.lda <- predict(lda.model, newdata=test)
+results.lda.model <- confusionMatrix(predmodel.test.lda$class, factor(test$Personal.Loan))
+# change with the factor it is not especially good at the moment
+
+
+##Predicting testing results.
+#predmodel.test.lda <- predict(model, newdata=test.data)
+#table(Predicted= predmodel.test.lda$class, test.data$diabetes)
+
+
+par(mfrow=c(1,1))
+plot(predmodel.test.lda$x[,1], predmodel.test.lda$class, col=test$Personal.Loan, pch=17)
+
+pr_lda <- prediction(predmodel.test.lda$posterior[,2], test$Personal.Loan)
+prf_lda <- performance(pr_lda, measure = "tpr", x.measure = "fpr")
+
+plot(prf_lda, colorize = TRUE, lwd=2, text.adj = c(-0.2,1.7), print.cutoffs.at = seq(0,1,0.1))
+
+```
+
+
+## K nearest Neighbours 
+```{r KNN}
+# Data distribution should look like a gaussion distribution I think - check with LDA
+# i dont think so. we just need gaussian for LDA
+# we just need mean=0, sd=1 for the features
+
+knn.model<- knn(train=train.normed[,-1], test=test.normed[,-1], 
+                cl=train.normed$Personal.Loan, k=23,prob=T)
+results.knn <- confusionMatrix(knn.model, test.normed$Personal.Loan) # confusion matrix
+knn.probs <- 1 - attr(knn.model, "prob")
+
+```
+
+```{r knn roc}
+p = ggplot() +
+  plotROC::geom_roc(aes(d=y_num, m=knn.probs))
+p
+plotROC::calc_auc(p)
+```
+
+
+## Classification Tree
+```{r classificaiton tree}
+class.tree.model <- rpart(Personal.Loan ~ ., method="class", data=train)
+prp(class.tree.model)
+printcp(class.tree.model)
+min_ind <- which.min(class.tree.model$cptable[, "xerror"])
+# select the optinal value for complexity parameter cp
+min_cp <- class.tree.model$cptable[min_ind, "CP"] 
+
+
+# perform tree prunning
+class.tree.model.prune <-prune(class.tree.model, cp = min_cp) 
+# no pruning done
+prp(class.tree.model.prune)
+
+
+class.tree.model.prune.predictions <- predict(class.tree.model.prune, 
+                                              newdata=test,type = 'class')
+
+results.class.tree <- confusionMatrix(data = test$Personal.Loan, 
+                                reference = class.tree.model.prune.predictions,
+                                positive = "1")
+
+results.class.tree
+```
+
+## Support Vector Classification
+```{r support Vector classification}
+
+library(e1071)
+svm.linear <- tune.svm(Personal.Loan ~ .,data = train.svc, kernel="linear",
+                      cost=c(0.01,0.1,0.2,0.5,0.7,1,2,3,5,10,15,20,50,100), probability=T)
+best.linear<-svm.linear$best.model
+summary(best.linear)
+
+best.test <- predict(best.linear,newdata=test.svc ,type="class", probability = T)
+probs <- attr(best.test, "probabilities")[,2]
+results.svc <- confusionMatrix(best.test,test.svc$Personal.Loan)
+
+```
+
+```{r svc non-linear}
+
+svm.poly <- tune.svm(Personal.Loan ~ .,data = train.svc, kernel="polynomial", probability=T,
+                      cost=c(0.01,0.1,0.2,0.5,0.7,1,2,3,5,10,15,20,50,100))
+best.poly <- svm.poly$best.model
+
+best.poly.test <- predict(best.poly,newdata=test.svc ,type="class",probability =T)
+probs.poly <- attr(best.poly.test, "probabilities")[,2]
+
+```
+
+```{r svc roc}
+p = ggplot() +
+  plotROC::geom_roc(aes(d=as.numeric( as.character( test$Personal.Loan ) ), m=probs))
+p
+
+p2 <- p + plotROC::geom_roc(aes(d=as.numeric( as.character( test$Personal.Loan ) ), m=probs.poly),
+  color = "red", label)
+p2
+plotROC::calc_auc(p2)
+```
+
+
+# Summary
+
+
+```{r ROC}
+p = augment(lr, type.predict="response") %>%
+  mutate(y_num = as.numeric(as.character(y_f)),
+         sm_fitted = augment(sm)$.fitted) %>% 
+  ggplot() +
+  plotROC::geom_roc(aes(d=y_num, m=.fitted))
+p
+ggplot() +
+  plotROC::geom_roc(aes(d=as.numeric( as.character( test$Personal.Loan ) ), m=as.numeric( as.character( best.poly.test ) )))
+```
+
+
+```{r accuracy from all of the models}
+results.bag.model
+results.forest.model
+results.logit.model
+results.lda.model
+results.svc
+```
+
