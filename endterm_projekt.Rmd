@@ -193,152 +193,37 @@ results.forest.model
 varImpPlot(forest.model)
 ```
 
-## Boosting (haben wir nicht bei classification gemacht also ka ob das geht?)
-```{r boosting}
-#x.train<- CottbusData[,-c(1:3)]
-#x.test<- CottbusData_test[,-c(1:3)]
-#y.train<-CottbusData[,3]
-#y.test<-CottbusData_test[,3]
-#
-##	Set up parameters to pass in; there are many more hyper-parameters available, but these are the most common to control
-#gbm_ntrees <- 120
-##	120 trees in the model; can scale back later for predictions, if desired or overfitting is suspected
-#gbm_shrinkage <-  0.05
-##	shrinkage is a regularization parameter dictating how fast the algorithm moves across the loss gradient
-##	0.05 is somewhat aggressive; default is 0.001, values below 0.1 tend to produce good results
-##		decreasing shrinkage generally improves results, but requires more trees, so the two should be adjusted in tandem
-#gbm_depth <- 4
-##	depth 4 means each tree will evaluate four decisions; 
-##		will always yield [3*depth + 1] nodes and [2*depth + 1] terminal nodes (depth 4 = 9) 
-##		because each decision yields 3 nodes, but each decision will come from a prior node
-#gbm_minobs <- 15
-#
-##	regularization parameter to dictate how many observations must be present to yield a terminal node
-##	higher number means more conservative fit; default is 10
-#
-##	fit model
-#g <- gbm.fit(x=x.train, y=y.train,distribution = "gaussian",n.trees = gbm_ntrees, shrinkage = gbm_shrinkage,
-#           interaction.depth = gbm_depth, n.minobsinnode = gbm_minobs)
-## gbm fit; provide all remaining independent variables in x.train; provide targets as y.train;
-##	gaussian distribution will optimize squared loss 
-#
-## get predictions; first on train set, then on unseen test data
-#boost.train <- predict.gbm(object = g,newdata = x.train, gbm_ntrees)
-#boost.test <- predict.gbm(object = g,newdata = x.test, gbm_ntrees)
-#
-## compare model performance 
-##library(mltools)#fyi 
-#rmse(y.train,boost.train)	#sqrt(meam(()^2))
-#rmse(y.test,boost.test)	
-#
-### 2.2
-## Hyperparameters tuning
-#g.cv<- gbm(NO2 ~. ,data=CottbusData[, -c(1,2)], distribution = "gaussian", n.trees = 1000, shrinkage = gbm_shrinkage,
-#            interaction.depth = 1, cv.folds = 5, verbose = F)
-#
-#min_MSE <- which.min(g.cv$cv.error)
-## get MSE and compute RMSE
-#sqrt(g.cv$cv.error[min_MSE]) # can we do better?
-## plot loss function as a result of n trees added to the ensemble
-#gbm.perf(g.cv, method = "cv")
-#print(g.cv)
-#
-#
-### 2.3 
-#set.seed(123)
-#lambdas <- seq(0, 0.4, by=0.01)
-#length.lambdas <- length(lambdas)
-#train.errors <- rep(NA, length.lambdas)
-#test.errors <- rep(NA, length.lambdas)
-#
-#for (i in 1:length.lambdas) {
-#  boost.no2 <- gbm(NO2 ~., data = CottbusData[,-c(1,2)], distribution = "gaussian", 
-#                      n.trees = 1000, shrinkage = lambdas[i])
-#  train.pred <-predict(boost.no2, CottbusData[,-c(1,2)], n.trees = 1000)
-#  test.pred <- predict(boost.no2, CottbusData_test[,-c(1,2)], n.trees = 1000)
-#  train.errors[i] <-sqrt(mean((train.pred-y.train)^2))
-#  test.errors[i] <- sqrt(mean((test.pred- y.test)^2))
-#}
-#
-#matplot(lambdas, cbind(train.errors,test.errors), type = "b", xlab = "Shrinkage", ylab = "RMSE", 
-#     col = c("blue","red"), pch = 20)
-#abline(v=lambdas[which.min(test.errors)], lty=2, col="green")
-#lambdas[which.min(test.errors)] # minimum test error is obtained at this value of lambda 
-#
-### 2.4 (additional question)
-## create hyperparameter grid
-#hyper_grid <- expand.grid(
-#  shrinkage = c(0.01, 0.05, 0.1),
-#  interaction.depth = c( 3,5,6),
-#  n.minobsinnode = c(5, 10, 15),
-#  bag.fraction = c(0.65, 0.8, 1), 
-#  optimal_trees = 0,               # a place to dump results
-#  min_RMSE = 0                     # a place to dump results
-#)
-#
-## grid search , can take several minutes
-#for(i in 1:nrow(hyper_grid)) {
-#  # reproducibility
-#  set.seed(123)
-#  # train model
-#  gbm.tune <- gbm(
-#    formula = NO2 ~.,
-#    distribution = "gaussian",
-#    data = CottbusData[,-c(1,2)],
-#    n.trees = 5000,
-#    interaction.depth = hyper_grid$interaction.depth[i],
-#    shrinkage = hyper_grid$shrinkage[i],
-#    n.minobsinnode = hyper_grid$n.minobsinnode[i],
-#    bag.fraction = hyper_grid$bag.fraction[i],
-#    train.fraction = 0.75,
-#    verbose = FALSE
-#  )
-#  # add min training error and trees to grid
-#  hyper_grid$optimal_trees[i] <- which.min(gbm.tune$valid.error)
-#  hyper_grid$min_RMSE[i] <- sqrt(min(gbm.tune$valid.error))
-#}
-#
-#
-#hyper_grid[which.min(hyper_grid$min_RMSE),] #select the line with min RMSE
-#
-## change the parameters according to the results above
-#gbm.fit.final <- gbm(NO2 ~ ., distribution = "gaussian", data = CottbusData[,-c(1,2)],
-#  n.trees = 352,
-#  interaction.depth = 6,
-#  shrinkage = 0.01,
-#  n.minobsinnode = 10,
-#  bag.fraction = 1, 
-#  verbose = FALSE
-#)  
-#
-#pred_train <- predict(gbm.fit.final, n.trees = gbm.fit.final$n.trees, CottbusData[,-c(1,2)])
-#pred_test <- predict(gbm.fit.final, n.trees = gbm.fit.final$n.trees, CottbusData_test[,-c(1,2)])
-#
-#rmse(y.train,pred_train)	
-#rmse(y.test,pred_test)
-#
-#summary(gbm.fit.final)
-#
-```
-
 ## Logistic Regression
-```{r logistic}
+
+```{r log1}
 logit <- glm(Personal.Loan ~ ., family = "binomial", data = train)
 summary(logit)
+```
+
+Interpretation:
+
+Odds ratios:
+```{r log2}
 exp(coef(logit))
+```
 
+Prediction performance:
 
-logit.pred <- predict(logit, newdata = test, type = "response")
-logit.pred <- ifelse(logit.pred < 0.5, 0, 1) 
-# if > 0.5 class one otherwise class 0
+```{r}
+logit.probs <- predict(logit, newdata = test, type = "response")
+logit.pred <- ifelse(logit.probs < 0.5, 0, 1) 
 
 results.logit.model <- confusionMatrix(data = as.factor(logit.pred), 
                                        reference = test$Personal.Loan,
                                        positive = "1")
-
 results.logit.model
+```
 
-ROCRpred <- prediction(logit.pred, test$Personal.Loan)
+Quite high accuracy.
+
+ROC:
+```{r}
+ROCRpred <- prediction(logit.probs, test$Personal.Loan)
 ROCRperf <- performance(ROCRpred, measure = "tpr", x.measure = "fpr")
 
 plot(ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
@@ -346,7 +231,10 @@ plot(ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at 
 logit.auc <- performance(ROCRpred, measure = "auc")
 logit.auc <- logit.auc@y.values[[1]]
 logit.auc
+```
+We see that the curve rises dramatically at first.
 
+```{r logistic}
 # Keine Ahnung ob man das so machen darf oder nicht
 
 lasso.cv <- cv.glmnet(x=data.matrix(train[,-which(colnames(train) == "Personal.Loan")]), 
@@ -362,7 +250,6 @@ sqrt(mean((lasso.pred - (as.numeric(test[,which(colnames(train) == "Personal.Loa
 
 # irgendwie super weird
 # evt einfach deleten
-
 ```
 Recht gute Accuracy
 
