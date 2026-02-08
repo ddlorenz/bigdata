@@ -1,8 +1,13 @@
 ---
 title: "Endterm Project - UK Big Data und Uncertainty Quantification"
-author: "David Gorbach"
+author: "Lorenz Dick und David Gorbach"
 date: "`r Sys.Date()`"
-output: html_document
+output: 
+  html_document:
+      code_folding: show
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r setup, include=FALSE}
@@ -33,60 +38,72 @@ library(kableExtra)
 set_theme(theme_bw())
 ```
 
-Data Analasis of Bankloan approval
+The following data analysis has the goal of choosing the best model to
+determine whether a person was approved to receive a bank loan or not.
+We used the following models to examine the data: logistic regression,
+decision tree, bagging, random forest, linear discriminant analysis, k
+nearest neighbors, and support vector classification.
 
 # Exploratory Data Analysis
 
 ```{r one}
 data <- read.csv("bankloan.csv")
 data <- data[,-1]
+dim(data)
 ```
 
+The data set consists of 5000 observation of 13 Variables.
 
-Explanation:
+Variables:
 
-- ID: Customer ID (sollten wir weglassen aus den models)
+-   Age : Customer Age
 
-- Age : Customer Age
+-   Experience : Customer Experience
 
-- Experience : Customer Experience
+-   Income : Income of the Customer
 
-- Income : Income of the Customer
+-   ZipCode: Customer's residence zipcode
 
-- ZipCode: Customer's residence zipcode (should be a factor)
+-   Family : No of Family members of the customer
 
-- Family : No of Family members of the customer
+-   CCAvg: Credit Card Average Score
 
-- CCAvg: Credit Card Average Score
-
-- Education: Education of the customer
+-   Education: Education of the customer
 
 Binary variables:
 
-- Mortgage: Mortgage taken or not taken by the customer
+-   Mortgage: Mortgage taken or not taken by the customer
 
-- Personal Loan: 0 = No personal loan given , 1 = personal loan given
+-   Personal Loan: 0 = No personal loan given , 1 = personal loan given
 
-- Securities Account : Having or not having a Securities Account
+-   Securities Account : Having or not having a Securities Account
 
-- CD Account : Having or not having a CD Account
+-   CD Account : Having or not having a CD Account
 
-- Online : Having or not having online banking
+-   Online : Having or not having online banking
 
-- Credit Card : Having or not having a credit card
+-   Credit Card : Having or not having a credit card
 
 ```{r}
-colSums(is.na(data)) # no na's
 kable(head(data))
 ```
 
+```{r}
+any(is.na(data))
+```
+We don't have NA's in our data.
+
 ```{r 2}
-tab <- table(data$Personal.Loan)
-tab
+data %>% 
+  group_by(Personal.Loan) %>%
+  summarise(n=n()) %>%
+  ggplot(aes(x=Personal.Loan, y = n)) + 
+  geom_bar(stat = "identity", fill="lightblue") + 
+  geom_label(aes(label = n))
 tab[2]/sum(tab)
 ```
 
-We see that loans were only given in ~10% of cases.
+We see that loans were only given in \~10% of cases.
 
 Info about categorical predictors:
 
@@ -97,11 +114,13 @@ ggplot(data=data, aes(x=Education)) + geom_histogram()
 Education has only three values.
 
 ```{r}
-max(data$Family)
+ggplot(data=data, aes(x=Family)) + geom_histogram()
 ```
+
 The number of family members is at most 4.
 
-Since these are ordinal, we chose to treat them as numerical variables nevertheless.
+Since these are ordinal, we chose to treat them as numerical variables
+nevertheless.
 
 ```{r two}
 skim(data)
@@ -118,17 +137,18 @@ corrplot(
 )
 ```
 
-The largest correlations with Personal Loan are with Income, average Credit, and
-CD Account.
+The largest correlations with Personal Loan are with Income, average
+Credit, and CD Account. Slighter correlation with Education, Mortgage
+and Family.
 
 ```{r}
-ggplot(data=data, aes(y=Personal.Loan,x=ZIP.Code)) + geom_boxplot()
+ggplot(data, aes(x = as.factor(ZIP.Code))) + geom_bar()
 ```
 
-There are too many zip codes to make sense of it as a predictor. We therefore
-exclude it from our analysis.
-We convert Personal.Loan to factor. All predictor variables are ordinal and will
-therefore be treated as numerical variables.
+There are too many zip codes (categories) to make sense of it as a predictor. We
+therefore exclude it from our analysis. We convert Personal.Loan to
+factor. All predictor variables are ordinal and will therefore be
+treated as numerical variables.
 
 ```{r}
 data <- data %>% dplyr::select(!ZIP.Code) %>%
@@ -168,10 +188,13 @@ ggplot(data,
 ```
 
 Income and Credit Card Average Score seam to have a high influence on
-whether a loan is granted or not, although the distribution of Credit Score Averages
-is rather uniformly distributed for people who received a loan.
+whether a loan is granted or not. The distribution of Credit Score
+Averages is rather uniformly among people who received a loan, though
+among those with a higher avarage had a much bigger chance of receiving
+a loan. Both higher education and higher family had a slight higer
+change of receiving a loan.
 
-Check for outliers: 
+Check for outliers:
 
 ```{r}
 out1 <- ggplot(data, aes(y = Income)) + geom_boxplot()
@@ -180,10 +203,13 @@ out3 <- ggplot(data, aes(y = Mortgage)) + geom_boxplot()
 out1 + out2 + out3
 ```
 
+No significant outliers, which would indicate mistakes in the data input
+or would significantly distort the analysis.
+
 ## Analysis Prep
 
 ```{r prep}
-set.seed(123)
+set.seed(1234)
 index <- sample(nrow(data), nrow(data)*0.8)
 train <- data[index,]
 test <- data[-index,]
@@ -192,6 +218,7 @@ y_num <- as.numeric( as.character( test$Personal.Loan ) ) # classes just as 0,1
 ```
 
 Centering and scaling the data for LDA, KNN and SVM:
+
 ```{r norm data}
 preproc.param <- train %>% 
   preProcess(method = c("center", "scale"))
@@ -209,7 +236,10 @@ logit <- glm(Personal.Loan ~ ., family = "binomial", data = train)
 summary(logit)
 ```
 
+Nearly all variables are significant.
+
 Odds ratios:
+
 ```{r}
 exp(coef(logit))
 ```
@@ -226,9 +256,11 @@ results.logit.model <- confusionMatrix(data = as.factor(logit.pred),
 results.logit.model
 ```
 
-The accuracy is quite good.
+The accuracy is quite good. Sensitivity not so much what is explained
+through the unbalanced data
 
 The ROC:
+
 ```{r}
 ROCRpred <- prediction(logit.probs, test$Personal.Loan)
 ROCRperf <- performance(ROCRpred, measure = "tpr", x.measure = "fpr")
@@ -238,107 +270,143 @@ auc.logit <- auc.logit@y.values[[1]]
 plot(ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
 ```
 
-It is quite good. At a cut-off of 0.2 we are already at about 90 % sensitivity,
-while also maintaining a specificity of more than 90%.
+It is quite good. At a cut-off of 0.2 we are already at about 90 %
+sensitivity, while also maintaining a specificity of more than 90%.
 
 ## Classification Tree
 
-```{r classificaiton tree}
+```{r}
 class.tree.model <- rpart(Personal.Loan ~ ., method="class", data=train)
-prp(class.tree.model)
 printcp(class.tree.model)
+```
+
+Selecting the optimal value for the complexity parameter and perform
+tuning
+
+```{r}
 min_ind <- which.min(class.tree.model$cptable[, "xerror"])
-# select the optinal value for complexity parameter cp
 min_cp <- class.tree.model$cptable[min_ind, "CP"] 
-
-
-# perform tree pruning
 class.tree.model.prune <-prune(class.tree.model, cp = min_cp) 
-# no pruning done
 prp(class.tree.model.prune)
+```
 
+Prediction performance:
 
+```{r classificaiton tree}
 class.tree.model.prune.predictions <- predict(class.tree.model.prune, 
                                               newdata=test,type = 'class')
-
 results.class.tree <- confusionMatrix(data = test$Personal.Loan, 
                                 reference = class.tree.model.prune.predictions,
                                 positive = "1")
-
 results.class.tree
+```
 
-# Check
+Accuracy quite good as well as Sensitivity and Specificity
+
+The ROC:
+
+```{r}
 class.tree.pr <- predict(class.tree.model.prune,newdata = test, type = "prob")[, 2]
-
 class.tree.ROCRpred <- prediction(class.tree.pr, test$Personal.Loan)
 class.tree.ROCRperf <- performance(class.tree.ROCRpred, measure = "tpr", x.measure = "fpr")
-
-plot(class.tree.ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
-
 auc.class.tree <- performance(class.tree.ROCRpred, measure = "auc")
 auc.class.tree <- auc.class.tree@y.values[[1]]
+
+plot(class.tree.ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
 ```
+
+The specificity looks really good. We get a sensitivity of over 90% when
+using a cut-off of 0.2 while maintaining a very high specificity.
 
 ## Bagging
 
-```{r bagging}
-bag.model <- randomForest(Personal.Loan ~ ., data = train, mtry=12, importance=T)
+```{r}
+bag.model <- randomForest(Personal.Loan ~ ., data = train, mtry=11, importance=T)
 bag.model
+```
 
+Prediction performance:
+
+```{r}
 predict.bag <- predict(bag.model, newdata = test)
 results.bag.model <- confusionMatrix(test$Personal.Loan, 
                                      predict.bag,positive = "1")
 results.bag.model
-varImpPlot(bag.model)
-
-# double check if correct as well as all the other ones
-bag.pr <- predict(bag.model,newdata = test, type = "prob")[, 2]
-
-bag.ROCRpred <- prediction(bag.pr, test$Personal.Loan)
-bag.ROCRperf <- performance(bag.ROCRpred, measure = "tpr", x.measure = "fpr")
-
-plot(bag.ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
-
-auc.bag <- performance(bag.ROCRpred, measure = "auc")
-auc.bag <- auc.bag@y.values[[1]]
-auc.bag
 ```
 
-Issues Slide 6 p 23
-It seems like Education is the second most important predictor.
+Slight improvement compared to Classification tree.
+
+```{r}
+varImpPlot(bag.model)
+```
+
+Both the MeanDecreaseAccuracy and MeanDecreaseGini measures indicate
+that Education, Income, and Family are the most influential variables in
+the bagging model.
+
+The ROC:
+
+```{r bagging}
+bag.pr <- predict(bag.model,newdata = test, type = "prob")[, 2]
+bag.ROCRpred <- prediction(bag.pr, test$Personal.Loan)
+bag.ROCRperf <- performance(bag.ROCRpred, measure = "tpr", x.measure = "fpr")
+auc.bag <- performance(bag.ROCRpred, measure = "auc")
+auc.bag <- auc.bag@y.values[[1]]
+
+plot(bag.ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
+```
+
+Slight improvement again.
 
 ## Random Forest
 
-```{r random forest}
-forest.model<- randomForest(Personal.Loan ~ ., data = train, mtry=floor((ncol(train) - 1)/3), importance=T)
-
+```{r}
+forest.model<- randomForest(Personal.Loan ~ ., data = train, 
+                            mtry=floor((ncol(train) - 1)/3), importance=T)
 forest.model
+```
 
+Prediction performance:
+
+```{r}
 perdict.forest <- predict(forest.model, newdata = test)
 results.forest.model <- confusionMatrix(as.factor(test$Personal.Loan), 
                                         perdict.forest,positive = "1")
 results.forest.model
-varImpPlot(forest.model)
-
-# Check
-forest.pr <- predict(forest.model,newdata = test, type = "prob")[, 2]
-
-forest.ROCRpred <- prediction(forest.pr, test$Personal.Loan)
-forest.ROCRperf <- performance(forest.ROCRpred, measure = "tpr", x.measure = "fpr")
-
-plot(forest.ROCRperf, colorize = FALSE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
-
-auc.forest <- performance(forest.ROCRpred, measure = "auc")
-auc.forest <- auc.forest@y.values[[1]]
-auc.forest
 ```
 
-Es steht bei mir invalid mtry??
-
-
-## Linear Diskiminant Analysis
+Minimal improvement to the bagging model.
 
 ```{r}
+varImpPlot(forest.model)
+```
+
+The results are very similar to those from the bagging model. However,
+in the random forest the variable CCAvg becomes more important than
+Family according to the MeanDecreaseGini measure. This shift occurs
+because the random forest algorithm forces each split to consider only a
+random subset of predictors rather than exposing every tree to the full
+set of variables.
+
+The ROC:
+
+```{r random forest}
+forest.pr <- predict(forest.model,newdata = test, type = "prob")[, 2]
+forest.ROCRpred <- prediction(forest.pr, test$Personal.Loan)
+forest.ROCRperf <- performance(forest.ROCRpred, measure = "tpr", x.measure = "fpr")
+auc.forest <- performance(forest.ROCRpred, measure = "auc")
+auc.forest <- auc.forest@y.values[[1]]
+
+plot(forest.ROCRperf, colorize = TRUE, lwd=2, text.adj = c(-0.2,0.5), print.cutoffs.at = seq(0,1,0.1))
+```
+
+A even stronger rise to high sensitivity (close to 1) with the FPR
+staying close to 0
+
+## Linear Discriminant Analysis
+
+```{r}
+# function from exercise solution
 transform_numeric <- function(x) {
   # If variable contains nonpositive values → use Yeo–Johnson
   if (any(x <= 0)) {
@@ -354,32 +422,33 @@ transform_numeric <- function(x) {
 }
 ```
 
-We have a lot of binary independent variables for which the normality assumption
-is not met. The only variables that have a continuous distribution are age, income
-and credit card average score. Let's have a look at the distributions!
-
-```{r}
-
-```
+We have a lot of binary independent variables for which the normality
+assumption is not met. The only variables that have a continuous
+distribution are age, income and credit card average score. Let's have a
+look at the distributions!
 
 ```{r}
 ggplot(data=train, aes(x= Age)) + geom_histogram()
 ```
+
 Looks ok.
 
 ```{r}
 ggplot(data=train, aes(x= Income)) + geom_histogram()
 ```
+
 Looks somewhat exponentially distributed.
 
 ```{r}
 ggplot(data=train, aes(x= CCAvg)) + geom_histogram()
 ```
+
 Also looks exponentially distributed.
 
 ```{r}
 sum(train$CCAvg == 0)
 ```
+
 82 data points are 0 so we need to use Yeo-Johnson instead of Box-Cox
 Let's transform income and credit card average score.
 
@@ -398,11 +467,13 @@ Let's see what's changed.
 ```{r}
 ggplot(data=train.lda, aes(x= Income)) + geom_histogram()
 ```
+
 Looks much better!
 
 ```{r}
 ggplot(data=train.lda, aes(x= CCAvg)) + geom_histogram()
 ```
+
 Also looks more normally distributed.
 
 Let's finally normalize the data to have mean 0 and variance 1.
@@ -424,7 +495,8 @@ predmodel.train.lda <- predict(lda.model, train.lda)
 ldahist(predmodel.train.lda$x[,1], g=predmodel.train.lda$class)
 ```
 
-The distribution in those that are predicted to get a loan doesn't look normal...
+The distribution in those that are predicted to get a loan doesn't look
+normal...
 
 Let's see how the model performs on the test data.
 
@@ -433,13 +505,13 @@ predmodel.test.lda <- predict(lda.model, newdata=test.lda)
 results.lda.model <- confusionMatrix(predmodel.test.lda$class, test.lda$Personal.Loan)
 results.lda.model
 ```
-The accuracy is not quite as good compared to the other models
-but this was to be expected, as we are only using 3 predictors here.
+
+The accuracy is not quite as good compared to the other models but this
+was to be expected, as we are only using 3 predictors here.
 
 ROC curve:
-```{r LDA}
-plot(predmodel.test.lda$x[,1], predmodel.test.lda$class, col=test.lda$Personal.Loan, pch=17)
 
+```{r LDA}
 pr.lda <- prediction(predmodel.test.lda$posterior[,2], test.lda$Personal.Loan)
 prf.lda <- performance(pr.lda, measure = "tpr", x.measure = "fpr")
 auc.lda <- performance(pr.lda, measure = "auc")
@@ -447,16 +519,19 @@ auc.lda <- auc.lda@y.values[[1]]
 
 plot(prf.lda, colorize = TRUE, lwd=2, text.adj = c(-0.2,1.7), print.cutoffs.at = seq(0,0.7,0.1))
 ```
-Similar to the other models, we see that the sensitivity only becomes acceptable
-for quite small cut-off values, i.e. to reach a sensitivity of 0.8 we need a 
-cut-off of 0.2 or lower.
+
+Similar to the other models, we see that the sensitivity only becomes
+acceptable for quite small cut-off values, i.e. to reach a sensitivity
+of 0.8 we need a cut-off of lower then 0.2.
 
 ## K nearest Neighbours
+
 Let's try the KNN algorithm.
 
-Here we use the normed (centered and scaled) data. We also included categorical
-predictors except for the zip code, because it has no order. All other categorical
-variables are ordinal so it is valid to include them.
+Here we use the normed (centered and scaled) data. We also included
+categorical predictors except for the zip code, because it has no order.
+All other categorical variables are ordinal so it is valid to include
+them.
 
 ```{r KNN}
 knn.model<- knn(train=dplyr::select(train.normed, -c(Personal.Loan)), 
@@ -465,6 +540,7 @@ knn.model<- knn(train=dplyr::select(train.normed, -c(Personal.Loan)),
 results.knn <- confusionMatrix(knn.model, test.normed$Personal.Loan)
 results.knn
 ```
+
 Accuracy is better than with LDA.
 
 ```{r knn roc}
@@ -476,6 +552,7 @@ auc.knn <- auc.knn@y.values[[1]]
 
 plot(prf.knn, colorize = TRUE, lwd=2, text.adj = c(-0.2,1.7), print.cutoffs.at = seq(0,0.6,0.1))
 ```
+
 Here, we need to set the cut-off below 0.2 to get a sensitivity of 0.8.
 
 ## Support Vector Classification
@@ -495,9 +572,11 @@ probs <- attr(best.test, "probabilities")[,2]
 results.svc <- confusionMatrix(best.test,test.normed$Personal.Loan)
 results.svc
 ```
+
 The accuracy is better than with KNN and LDA.
 
 Let's look at the ROC curve.
+
 ```{r}
 pr.svc.linear <- prediction(probs, test.normed$Personal.Loan)
 prf.svc.linear <- performance(pr.svc.linear, measure = "tpr", x.measure = "fpr")
@@ -507,8 +586,8 @@ auc.svc.linear <- auc.svc.linear@y.values[[1]]
 plot(prf.svc.linear, colorize = TRUE, lwd=2, text.adj = c(-0.2,1.7), print.cutoffs.at = seq(0,1,0.1))
 ```
 
-With a cut-off of 0.2 we can achieve a sensitivity of over 0.8, while maintaining 
-a very high specificity.
+With a cut-off of 0.2 we can achieve a sensitivity of just about 0.8,
+while maintaining a very high specificity.
 
 ```{r}
 svm.poly <- tune.svm(Personal.Loan ~ .,data = train.normed, kernel="polynomial", probability=T,
@@ -526,7 +605,7 @@ results.poly <- confusionMatrix(best.poly.test,test.normed$Personal.Loan)
 results.poly
 ```
 
-This model has really high accuracy, the best yet.
+This model has really high accuracy.
 
 Let's look at the ROC curve.
 
@@ -539,8 +618,9 @@ auc.svc.poly <- auc.svc.poly@y.values[[1]]
 plot(prf.svc.poly, colorize = TRUE, lwd=2, text.adj = c(-0.2,1.7), print.cutoffs.at = seq(0,1,0.1))
 ```
 
-Here, the prediction is extremely good. We get a sensitivity of over 90% when using
-a cut-off of 0.1, while maintaining an extremely high specificity.
+Here, the prediction is extremely good. We get a sensitivity of over 90%
+when using a cut-off of 0.1, while maintaining an extremely high
+specificity.
 
 # Summary
 
@@ -598,3 +678,17 @@ results.df %>% arrange(desc(AUC)) %>%
   )
 ```
 
+All models demonstrate strong discriminative ability, with Bagging and
+Random Forest achieving the highest AUC values. Although Bagging attains
+a marginally higher AUC than Random Forest, the difference is negligible
+and unlikely to be practically significant (bagging 0.9964874 to random
+forest 0.9961876). Both ensemble methods also achieve similarly high
+accuracy, sensitivity, and specificity.
+
+While Bagging reduces variance by averaging over multiple decision
+trees, the trees tend to be highly correlated, which limits the extent
+of variance reduction. Random Forest addresses this limitation by
+introducing feature-level randomness at each split, thereby reducing
+correlation among the trees and improving generalization performance.
+Given its comparable predictive performance and superior variance
+reduction properties, Random Forest is selected as the preferred model.
